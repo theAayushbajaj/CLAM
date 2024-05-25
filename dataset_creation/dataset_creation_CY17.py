@@ -1,17 +1,50 @@
 import h5py
 import numpy as np
 import pandas as pd
-from PIL import Image
+
 import openslide
 from tqdm import tqdm
 import os
 from tiatoolbox.wsicore.wsireader import WSIReader
-from utils import save_patches_in_batches, select_slides
+from utils import save_patches_in_batches, \
+    select_slides, \
+    parse_xml, \
+    extract_polygon_image, \
+    is_within_patch, \
+    calculate_iou
 import logging
 logging.basicConfig(level=logging.INFO)
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Visualize patches from H5 files")
+    parser.add_argument("--stage_csv", type=str, help="Path to the CSV file containing the stages of the patients")
+    parser.add_argument("--wsi_dir", type=str, help="Path to the directory containing the WSI files")
+    parser.add_argument("--h5_dir", type=str, help="Path to the directory containing the H5 files")
+    parser.add_argument("--xml_dir", type=str, help="Path to the directory containing the XML files")
+    parser.add_argument("--save_dir", type=str, help="Path to the directory where the patches will be saved")
+    parser.add_argument('--NWN',default=2,type=int)
+    parser.add_argument('--NC',default=100,type=int)
+    return parser.parse_args()
 
-def save_patches_from_h5(h5_file_path, wsi_path, save_dir, stage="negative"):
+
+def validate_patch(xml_path, patch_coords, patch_size=256):
+    if os.path.exists(xml_path):
+        annotations = parse_xml(xml_path)
+
+    else:
+        return False
+
+    for annotation in annotations:
+        annotation_coords = annotation['coordinates']
+        if is_within_patch(patch_coords, annotation_coords, patch_size):
+            return True
+    return False
+
+
+def save_patches_from_h5(h5_file_path, wsi_path, patient, save_dir, stage, args):
+    xml = f"{args.xml_dir}/{patient}.xml"
+
     # Open the H5 file
     with h5py.File(h5_file_path, 'r') as h5_file:
         coords = h5_file['coords']
@@ -38,13 +71,30 @@ def save_patches_from_h5(h5_file_path, wsi_path, save_dir, stage="negative"):
         # Iterate through the coordinates and visualize the patches
         for i in tqdm(selected_slides, desc="Processing slides"):  # Visualize first 5 patches
             x, y = coords[i]
-            patch = wsi.read_region((x, y), 0, (256, 256))  # Assuming patch size of 256x256
+            patch = wsi.read_region((x, y), 0, (256, 256)) 
             patch = patch.convert('RGB')
             
-            tissue_patches.append(patch)
-            tissue_names.append(f"{save_dir}/patch_{i+1}_{x}_{y}.png")
+            if stage != "negative":
+                if os.path.exists(xml):
+                    if validate_patch(xml, (x,y), patch_size=256):
+                        tissue_patches.append(patch)
+                        tissue_names.append(f"{save_dir}/patch_{patient}_{x}_{y}.png")
+                    else:
+                        continue
+
+                else:
+                    continue
+            else:
+                tissue_patches.append(patch)
+                tissue_names.append(f"{save_dir}/patch_{patient}_{x}_{y}.png")
     
+    # if stage != "negative":
+    #     results = validate_patches(f"{args.xml_dir}/{patient}.xml", tissue_patches, patient, patch_size=256)
+    # else:
+    #     results = []
+    logging.info(f"Saving {len(tissue_patches)} patches")
     save_patches_in_batches(tissue_patches, tissue_names, save_dir)
+
 
 
 def main(args):
@@ -52,7 +102,12 @@ def main(args):
     logging.info("Stages dataframe loaded")
     # filter all the files that have .tff extension in patient column of the stages dataframe
     stages = stages[stages['patient'].str.contains('.tif',case=False)]
-    stages = stages[stages['stage']=="macro"]
+    stages = stages[stages['stage']!='negative']
+    
+    # TEST: take only 3 rows of each stage for testing
+    stages = stages.groupby('stage').head(3)
+
+    validation_results = pd.DataFrame()
 
     for i, row in tqdm(stages.iterrows(), desc="Processing stages"):
         patient = row['patient'].split('.')[0]
@@ -65,19 +120,10 @@ def main(args):
         os.makedirs(save_dir, exist_ok=True)
         logging.info(f"Processing: {patient}")
 
-        save_patches_from_h5(h5_file_path, wsi_path, save_dir)
+        save_patches_from_h5(h5_file_path, wsi_path, patient, save_dir, stage, args)
+        #validation_results = pd.concat([validation_results, pd.DataFrame(results)], ignore_index=True)
         #logging.info(INFO_WSI)
 
-def parse_args():
-    import argparse
-    parser = argparse.ArgumentParser(description="Visualize patches from H5 files")
-    parser.add_argument("--stage_csv", type=str, help="Path to the CSV file containing the stages of the patients")
-    parser.add_argument("--wsi_dir", type=str, help="Path to the directory containing the WSI files")
-    parser.add_argument("--h5_dir", type=str, help="Path to the directory containing the H5 files")
-    parser.add_argument("--save_dir", type=str, help="Path to the directory where the patches will be saved")
-    parser.add_argument('--NWN',default=2,type=int)
-    parser.add_argument('--NC',default=100,type=int)
-    return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
