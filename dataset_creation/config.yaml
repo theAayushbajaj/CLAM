@@ -1,0 +1,24 @@
+# Configuration for dataset_creation_CY17.py
+# Path to the CSV file containing the stages of the patients
+stage_csv: /home/aayushb/projects/def-ebrahimi/aayushb/CAMELYON17/stages.csv
+
+# Path to the directory containing the WSI files
+wsi_dir: /home/aayushb/projects/def-ebrahimi/aayushb/CAMELYON17/images
+
+# Path to the directory containing the H5 files
+h5_dir: /home/aayushb/projects/def-ebrahimi/aayushb/CAMELYON17_f640_PS256/patches
+
+# Path to the directory containing the XML files
+xml_dir: /home/aayushb/projects/def-ebrahimi/aayushb/CAMELYON17/annotations
+
+# Path to the directory where the patches will be saved
+save_dir: /home/aayushb/projects/def-ebrahimi/aayushb/CAMELYON17_f640_PS256/
+
+# Number of workers for patch extraction
+NWN: 20
+
+# Number of patches per class
+NC: 10000
+
+# IOU threshold for patch extraction
+iou_threshold: 0.1

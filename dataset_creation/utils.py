@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 from PIL import Image, ImageDraw
 import numpy as np
 from shapely.geometry import Polygon
+import logging
+logging.basicConfig(level=logging.INFO)
 
 def select_slides(x,total):
     selected_slides = []
@@ -24,17 +26,15 @@ def save_patches_in_batches(tissue_patches, tissue_names, output_folder, batch_s
 def parse_xml(xml_path):
     tree = ET.parse(xml_path)
     root = tree.getroot()
-    
     annotations = []
+    
     for annotation in root.findall('.//Annotation'):
-        name = annotation.attrib['Name']
-        part_of_group = annotation.attrib['PartOfGroup']
         coordinates = []
-        for coord in annotation.find('Coordinates').findall('Coordinate'):
-            x = float(coord.attrib['X'])
-            y = float(coord.attrib['Y'])
+        for coordinate in annotation.findall('.//Coordinate'):
+            x = float(coordinate.get('X'))
+            y = float(coordinate.get('Y'))
             coordinates.append((x, y))
-        annotations.append({'name': name, 'part_of_group': part_of_group, 'coordinates': coordinates})
+        annotations.append({'coordinates': coordinates})
     
     return annotations
 
@@ -80,6 +80,7 @@ def is_within_patch(patch_coords, annotation_coords, patch_size):
     return True
 
 
+
 def calculate_iou(patch_coords, annotation_coords, patch_size):
     patch_polygon = Polygon([
         patch_coords,
@@ -93,3 +94,5 @@ def calculate_iou(patch_coords, annotation_coords, patch_size):
     intersection = patch_polygon.intersection(annotation_polygon).area
     union = patch_polygon.union(annotation_polygon).area
     return intersection / union
+
+

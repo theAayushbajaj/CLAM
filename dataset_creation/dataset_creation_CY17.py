@@ -5,6 +5,7 @@ import pandas as pd
 import openslide
 from tqdm import tqdm
 import os
+import yaml
 from tiatoolbox.wsicore.wsireader import WSIReader
 from utils import save_patches_in_batches, \
     select_slides, \
@@ -15,35 +16,37 @@ from utils import save_patches_in_batches, \
 import logging
 logging.basicConfig(level=logging.INFO)
 
-def parse_args():
-    import argparse
-    parser = argparse.ArgumentParser(description="Visualize patches from H5 files")
-    parser.add_argument("--stage_csv", type=str, help="Path to the CSV file containing the stages of the patients")
-    parser.add_argument("--wsi_dir", type=str, help="Path to the directory containing the WSI files")
-    parser.add_argument("--h5_dir", type=str, help="Path to the directory containing the H5 files")
-    parser.add_argument("--xml_dir", type=str, help="Path to the directory containing the XML files")
-    parser.add_argument("--save_dir", type=str, help="Path to the directory where the patches will be saved")
-    parser.add_argument('--NWN',default=2,type=int)
-    parser.add_argument('--NC',default=100,type=int)
-    return parser.parse_args()
+def get_args():
+    # open the config.yaml file
+    with open("config.yaml", 'r') as stream:
+        try:
+            args = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            logging.info(exc)
+    #logging.info(args)
+    return args
 
 
-def validate_patch(xml_path, patch_coords, patch_size=256):
+def validate_patch(xml_path, patch_coords, patch_size=256, iou_threshold=0.1):
     if os.path.exists(xml_path):
         annotations = parse_xml(xml_path)
-
     else:
+        logging.info(f"XML file {xml_path} does not exist.")
         return False
 
     for annotation in annotations:
         annotation_coords = annotation['coordinates']
-        if is_within_patch(patch_coords, annotation_coords, patch_size):
+        iou = calculate_iou(patch_coords, annotation_coords, patch_size)
+        if iou > iou_threshold:
+            logging.info(f"Patch {patch_coords} has IoU {iou:.2f} with annotation and is considered valid.")
             return True
+        else:
+            continue
     return False
 
 
 def save_patches_from_h5(h5_file_path, wsi_path, patient, save_dir, stage, args):
-    xml = f"{args.xml_dir}/{patient}.xml"
+    xml = f"{args['xml_dir']}/{patient}.xml"
 
     # Open the H5 file
     with h5py.File(h5_file_path, 'r') as h5_file:
@@ -58,7 +61,7 @@ def save_patches_from_h5(h5_file_path, wsi_path, patient, save_dir, stage, args)
         
         if stage == "negative":
             total_patches = coords.shape[0]
-            per_slide = int(args.NC/args.NWN)
+            per_slide = int(args['NC']/args['NWN'])
             selected_slides = select_slides(per_slide,total_patches)
 
         else:
@@ -98,7 +101,7 @@ def save_patches_from_h5(h5_file_path, wsi_path, patient, save_dir, stage, args)
 
 
 def main(args):
-    stages = pd.read_csv(args.stage_csv)
+    stages = pd.read_csv(args['stage_csv'])
     logging.info("Stages dataframe loaded")
     # filter all the files that have .tff extension in patient column of the stages dataframe
     stages = stages[stages['patient'].str.contains('.tif',case=False)]
@@ -112,13 +115,13 @@ def main(args):
     for i, row in tqdm(stages.iterrows(), desc="Processing stages"):
         patient = row['patient'].split('.')[0]
         stage = row['stage']
-        wsi_path = f"{args.wsi_dir}/{patient}.tif"
-        h5_file_path = f"{args.h5_dir}/{patient}.h5"
+        wsi_path = f"{args['wsi_dir']}/{patient}.tif"
+        h5_file_path = f"{args['h5_dir']}/{patient}.h5"
         
-        save_dir = f"{args.save_dir}/{stage}/"
+        save_dir = f"{args['save_dir']}/{stage}/"
 
         os.makedirs(save_dir, exist_ok=True)
-        logging.info(f"Processing: {patient}")
+        logging.info(f"Processing: {stage} and {patient}")
 
         save_patches_from_h5(h5_file_path, wsi_path, patient, save_dir, stage, args)
         #validation_results = pd.concat([validation_results, pd.DataFrame(results)], ignore_index=True)
@@ -126,5 +129,5 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    args = get_args()
     main(args)
